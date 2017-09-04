@@ -114,3 +114,5 @@ ENV/
 .history
 
 # End of https://www.gitignore.io/api/visualstudiocode
+
+*.data

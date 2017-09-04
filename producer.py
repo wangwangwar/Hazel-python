@@ -6,69 +6,14 @@ import json
 from enum import Enum
 import hashlib
 from datetime import datetime
+from message import Message, MessageType
+from topic import *
 
 
 kafka = KafkaClient('172.18.0.1:9092')
 producer = SimpleProducer(kafka)
 
-# Assign a topic
-topic = 'my-sync-topic'
 
-class MessageType(Enum):
-    CREATE = 1
-    DELETE = 2
-
-class Message(object):
-    type: MessageType
-    name: str
-    data: bytes
-    hash: str
-    datetime: datetime
-
-    def __init__(self, type: MessageType, name: str, datetime: datetime, data: bytes = None, hash: str = None):
-        self.type = type
-        self.name = name
-        self.datetime = datetime
-        self.data = data
-        self.hash = hash
-    
-    def to_json(self):
-        type: str
-        if self.type == MessageType.CREATE:
-            return {
-                'type': 'CREATE',
-                'name': self.name,
-                'data': self.data.decode('latin-1'),
-                'hash': self.hash,
-                'datetime': self.datetime.strftime('%Y-%m-%d %H:%M:%S')
-            }  
-        elif self.type == MessageType.DELETE:
-            return {
-                'type': 'DELETE',
-                'name': self.name,
-                'data': None,
-                'hash': None,
-                'datetime': self.datetime.strftime('%Y-%m-%d %H:%M:%S')
-            }
-
-    @staticmethod
-    def from_json(json_dict):
-        if json_dict['type'] == 'CREATE':
-            return Message(
-            type=MessageType.CREATE,
-            name=json_dict['name'],
-            datetime=json_dict['datetime'],
-            data=json_dict['data'],
-            hash=json_dict['hash'])
-        elif json_dict['type'] == 'DELETE':
-            return Message(
-            type=MessageType.DELETE,
-            name=json_dict['name'],
-            datetime=json_dict['datetime'])
-        else:
-            return None
-
-            
 # Build message
 def build_messages(dir: pathlib.Path, compare_result: tuple) -> list:
     deleted_files = compare_result[0]
@@ -88,12 +33,14 @@ def build_messages(dir: pathlib.Path, compare_result: tuple) -> list:
             type=MessageType.DELETE,
             name=file,
             datetime=datetime.now()))
-        
+
     return messages
+
 
 def bin_data(path: pathlib.Path):
     with open(path, 'rb') as open_file:
         return open_file.read()
+
 
 def file_hash(path: pathlib.Path):
     with open(path, 'rb') as open_file:
@@ -105,10 +52,13 @@ def file_hash(path: pathlib.Path):
 # Compare two file list
 # Return a tuple with two list, first contains files that `files1` only has,
 # second contains files that `files2` only has
-def compare_files(files1 : list, files2 : list) -> tuple:
+#
+# Ignore dir
+def compare_files(files1: list, files2: list) -> tuple:
     files1_copy = files1[:]
     files2_copy = files2[:]
 
+    files1_copy
     for file in files2:
         if file in files1_copy:
             files1_copy.remove(file)
@@ -120,21 +70,48 @@ def compare_files(files1 : list, files2 : list) -> tuple:
     return (files1_copy, files2_copy)
 
 
-def listen_dir(dir_name):
+def filter_dir(dir: pathlib.Path, filenames: list) -> list:
+    filenames_copy = filenames[:]
+
+    for filename in filenames:
+        file = dir.joinpath(filename)
+        if file.is_dir():
+            filenames_copy.remove(filename)
+
+    return filenames_copy
+
+
+def listen_dir(dir: pathlib.Path):
+    if not (dir.exists() or dir.is_dir()):
+        print('dir ' + dir + ' is not valid')
+        return 
+
+    topic = dir.name
+
     # List dir
-    sync_dir = pathlib.Path.home().joinpath(dir_name)
-    old_files = os.listdir(sync_dir)
+    # old_files = os.listdir(dir)
+    old_files = []
     while True:
         time.sleep(2)
-        sync_dir = pathlib.Path.home().joinpath(dir_name)
-        files = os.listdir(sync_dir)
+        _files = os.listdir(dir)
+        files = filter_dir(dir, _files)
         result = compare_files(old_files, files)
         print(result)
-        messages = build_messages(sync_dir, result)
+        messages = build_messages(dir, result)
         for m in messages:
-            print(m.to_json())
-            producer.send_messages(topic, json.dumps(m.to_json()).encode('utf-8'))
+            print(m)
+            producer.send_messages(
+                topic, json.dumps(m.to_json()).encode('utf-8'))
         old_files = files
 
+
+def main():
+    print(topic_dict(pickle_file_name))
+    dir_name = 'Sync'
+    sync_dir = pathlib.Path.home().joinpath(dir_name)
+    add_topic(pickle_file_name, dir_name, sync_dir)
+    listen_dir(sync_dir)
+    
+
 if __name__ == '__main__':
-    listen_dir('Sync')
+    main()
